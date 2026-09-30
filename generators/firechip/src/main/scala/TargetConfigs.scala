@@ -239,6 +239,19 @@ class FireSimRocket4GiBDRAMConfig extends Config(
   new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
   new FireSimRocketConfig)
 
+// Rocket with a 32 KiB 8-way L1 D$ and no L2 (broadcast-based coherence hub)
+class FireSimRocket32KBL1NoL2Config extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
+  new chipyard.config.WithBroadcastManager ++              // remove the L2, use a broadcast coherence hub
+  new chipyard.config.WithL1DCache(nSets = 64, nWays = 8) ++ // 32 KiB, 8-way L1 D$ (64 * 8 * 64B)
+  new FireSimRocketConfig)
+
+class FireSimRocket4GiBDRAMWithNICConfig extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
+  new WithNIC ++
+  new FireSimRocketConfig)
+
+
 class FireSimRocketMMIOOnly4GiBDRAMConfig extends Config(
   new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
   new FireSimRocketMMIOOnlyConfig)
@@ -280,6 +293,23 @@ class FireSimLargeBoomConfig extends Config(
   new WithDefaultMemModel ++
   new WithFireSimConfigTweaks ++
   new chipyard.LargeBoomConfig)
+
+
+//VCU118 4GB config, base off chipyard's LargeBoomConfig
+class FireSimLargeBoomConfigVCU1184GB extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
+  new WithDefaultFireSimBridges ++
+  new WithDefaultMemModel ++
+  new WithFireSimConfigTweaks ++
+  new chipyard.LargeBoomConfig)
+
+
+// Damiths quad core
+ 
+class FireSimQuadRocket4GiBDRAMConfig extends Config(
+  new freechips.rocketchip.subsystem.WithExtMemSize((1 << 30) * 4L) ++
+  new FireSimQuadRocketConfig)
+
 
 //********************************************************************
 // Heterogeneous config, base off chipyard's LargeBoomAndRocketConfig

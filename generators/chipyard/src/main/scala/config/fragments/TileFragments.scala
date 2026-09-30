@@ -66,6 +66,17 @@ class WithNPMPs(n: Int = 8) extends Config((site, here, up) => {
   }
 })
 
+// Resize the L1 data cache. capacity = nSets * nWays * blockBytes (blockBytes defaults to 64)
+class WithL1DCache(nSets: Int, nWays: Int) extends Config((site, here, up) => {
+  case TilesLocated(InSubsystem) => up(TilesLocated(InSubsystem), site) map {
+    case tp: RocketTileAttachParams => tp.copy(tileParams = tp.tileParams.copy(
+      dcache = tp.tileParams.dcache.map(_.copy(nSets = nSets, nWays = nWays))))
+    case tp: BoomTileAttachParams => tp.copy(tileParams = tp.tileParams.copy(
+      dcache = tp.tileParams.dcache.map(_.copy(nSets = nSets, nWays = nWays))))
+    case other => other
+  }
+})
+
 class WithRocketCacheRowBits(rowBits: Int = 64) extends Config((site, here, up) => {
   case TilesLocated(InSubsystem) => up(TilesLocated(InSubsystem)) map {
     case tp: RocketTileAttachParams => tp.copy(tileParams = tp.tileParams.copy(
