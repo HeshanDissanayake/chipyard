@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regmon</title>
+<style>
+:root {
+  color-scheme: light;
+  --mode: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11,11,11,0.10);
+  --wash: rgba(11,11,11,0.05);
+  --series-reads: #2a78d6;
+  --series-writes: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --mode: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --wash: rgba(255,255,255,0.06);
+    --series-reads: #3987e5;
+    --series-writes: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --mode: dark;
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --grid: #2c2c2a;
+  --border: rgba(255,255,255,0.10);
+  --wash: rgba(255,255,255,0.06);
+  --series-reads: #3987e5;
+  --series-writes: #d95926;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+.sub { color: var(--text-secondary); margin: 0 0 16px; }
+.error { color: #d03b3b; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-bottom: 16px; }
+.controls label { color: var(--text-secondary); display: flex; gap: 8px; align-items: center; }
+select, button {
+  font: inherit; color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px;
+}
+button { cursor: pointer; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 5px 12px; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--wash); font-weight: 600; }
+#run { max-width: 480px; }
+
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 16px 8px; margin-bottom: 16px;
+}
+.card-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.card h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.card .meta { color: var(--text-muted); font-size: 12px; margin: 2px 0 8px; }
+.ramp { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.ramp canvas { width: 140px; height: 10px; border-radius: 2px; }
+
+.plot { position: relative; width: 100%; }
+.plot svg { display: block; position: relative; }
+.plot canvas.heat { display: block; position: absolute; image-rendering: pixelated; }
+.tick { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.axis-title { fill: var(--text-secondary); font-size: 12px; }
+.empty { color: var(--text-muted); padding: 32px 0; text-align: center; }
+
+#tip {
+  position: fixed; pointer-events: none; z-index: 10; display: none;
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12); font-size: 12px; min-width: 150px;
+}
+#tip .t-head { color: var(--text-secondary); margin-bottom: 4px; }
+#tip .t-row { display: flex; align-items: center; gap: 8px; }
+#tip .t-row b { font-size: 13px; font-variant-numeric: tabular-nums; }
+#tip .t-row span { color: var(--text-secondary); }
+#tip .key { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Register file usage</h1>
+  <p class="sub" id="subtitle">Loading logs…</p>
+
+  <div class="controls">
+    <label>Run <select id="run"></select></label>
+    <label>Show
+      <span class="seg" id="metric">
+        <button data-v="reads" aria-pressed="true">Reads</button>
+        <button data-v="writes" aria-pressed="false">Writes</button>
+        <button data-v="both" aria-pressed="false">Reads + writes</button>
+      </span>
+    </label>
+    <button id="rescan" title="Scan the log directory again">Rescan</button>
+  </div>
+
+  <section class="card" id="card-int">
+    <div class="card-head">
+      <h2>Integer register file</h2>
+      <div class="ramp"><span>0</span><canvas width="140" height="10"></canvas><span class="ramp-max"></span></div>
+    </div>
+    <div class="meta"></div>
+    <div class="plot"></div>
+  </section>
+
+  <section class="card" id="card-fp">
+    <div class="card-head">
+      <h2>Floating-point register file</h2>
+      <div class="ramp"><span>0</span><canvas width="140" height="10"></canvas><span class="ramp-max"></span></div>
+    </div>
+    <div class="meta"></div>
+    <div class="plot"></div>
+  </section>
+</main>
+<div id="tip"></div>
+
+<script>
+"use strict";
+
+// Sequential blue ramp, steps 100..700 (light -> dark); reversed on dark surfaces.
+const RAMP = ["#cde2fb","#b7d3f6","#9ec5f4","#86b6ef","#6da7ec","#5598e7","#3987e5",
+              "#2a78d6","#256abf","#1c5cab","#184f95","#104281","#0d366b"];
+const MARGIN = { l: 52, r: 16, t: 4, b: 34 };
+const METRIC_NAME = { reads: "reads", writes: "writes", both: "reads + writes" };
+
+const state = { runs: [], run: null, metric: "reads", data: { int: null, fp: null } };
+
+const $ = (id) => document.getElementById(id);
+const SVGNS = "http://www.w3.org/2000/svg";
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const isDark = () => css("--mode") === "dark";
+
+function svg(tag, attrs, parent) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+const fmtInt = (v) => Math.round(v).toLocaleString("en-US");
+function fmtCompact(v) {
+  const a = Math.abs(v);
+  const f = (x, d) => (x / d).toFixed(x / d >= 10 ? 0 : 1).replace(/\.0$/, "");
+  if (a >= 1e9) return f(v, 1e9) + "G";
+  if (a >= 1e6) return f(v, 1e6) + "M";
+  if (a >= 1e3) return f(v, 1e3) + "k";
+  return String(Math.round(v));
+}
+function fmtRate(v) {
+  if (v === 0) return "0";
+  if (v >= 100) return v.toFixed(0);
+  if (v >= 1) return v.toFixed(1);
+  return v.toPrecision(2);
+}
+
+const RAMP_RGB = RAMP.map((h) => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; });
+function rampColor(t) {
+  const stops = isDark() ? [...RAMP_RGB].reverse() : RAMP_RGB;
+  const x = Math.min(1, Math.max(0, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x)), f = x - i;
+  const a = stops[i], b = stops[i + 1];
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(",")})`;
+}
+
+// ---------------------------------------------------------------- tooltip
+const tip = $("tip");
+function showTip(evt, head, rows) {
+  tip.replaceChildren();
+  const h = document.createElement("div");
+  h.className = "t-head";
+  h.textContent = head;
+  tip.appendChild(h);
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "t-row";
+    const k = document.createElement("i");
+    k.className = "key";
+    k.style.background = r.color || "transparent";
+    const b = document.createElement("b");
+    b.textContent = r.value;
+    const n = document.createElement("span");
+    n.textContent = r.name;
+    row.append(k, b, n);
+    tip.appendChild(row);
+  }
+  tip.style.display = "block";
+  const pad = 14, w = tip.offsetWidth, hh = tip.offsetHeight;
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  if (x + w > innerWidth - 8) x = evt.clientX - w - pad;
+  if (y + hh > innerHeight - 8) y = evt.clientY - hh - pad;
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+const hideTip = () => { tip.style.display = "none"; };
+
+// ---------------------------------------------------------------- data
+async function getJSON(url) {
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+// Pair <prefix>_int_hartN.bin with <prefix>_fp_hartN.bin into one run.
+function groupRuns(files) {
+  const runs = new Map();
+  for (const f of files) {
+    const m = f.name.match(/^(.*)_(int|fp)_hart(\d+)\.bin$/);
+    const key = m ? `${m[1]} (hart ${m[3]})` : f.name;
+    if (!runs.has(key)) runs.set(key, { key, int: null, fp: null });
+    runs.get(key)[m ? m[2] : f.rf_type] = f;
+  }
+  return [...runs.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function runLabel(run) {
+  const slash = run.key.lastIndexOf("/");
+  const f = run.int || run.fp;
+  const dir = slash >= 0 ? `  ·  ${run.key.slice(0, slash)}` : "";
+  return `${run.key.slice(slash + 1)}  (${fmtInt(f.num_windows)} windows)${dir}`;
+}
+
+async function loadRuns() {
+  const j = await getJSON("/api/files");
+  state.runs = groupRuns(j.files);
+  const sel = $("run");
+  sel.replaceChildren();
+  state.runs.forEach((r, i) => {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = runLabel(r);
+    sel.appendChild(o);
+  });
+  $("subtitle").className = "sub";
+  $("subtitle").textContent = state.runs.length
+    ? `${state.runs.length} run${state.runs.length > 1 ? "s" : ""} under ${j.root}`
+    : `No regmon logs found under ${j.root}`;
+  if (!state.runs.length) return;
+
+  const prev = state.run ? state.runs.findIndex((r) => r.key === state.run.key) : -1;
+  const want = new URLSearchParams(location.search).get("log");
+  const asked = want ? state.runs.findIndex((r) => r.key.includes(want)) : -1;
+  const idx = prev >= 0 ? prev : asked >= 0 ? asked : 0;
+  sel.value = idx;
+  state.run = state.runs[idx];
+  await loadData();
+}
+
+function plotWidth() {
+  return Math.max(200, $("card-int").querySelector(".plot").clientWidth - MARGIN.l - MARGIN.r);
+}
+
+async function loadData() {
+  const cols = Math.floor(plotWidth());
+  const fetchOne = (f) => (f ? getJSON(`/api/data?file=${f.id}&cols=${cols}`) : Promise.resolve(null));
+  try {
+    [state.data.int, state.data.fp] = await Promise.all([fetchOne(state.run.int), fetchOne(state.run.fp)]);
+    render();
+  } catch (e) {
+    $("subtitle").textContent = "Error: " + e.message;
+    $("subtitle").className = "sub error";
+  }
+}
+
+// ---------------------------------------------------------------- render
+function render() {
+  // Both waterfalls share one cycle axis: the longer of the two runs.
+  const span = Math.max(...["int", "fp"].map((k) => state.data[k]?.total_cycles || 0), 1);
+  waterfall($("card-int"), state.data.int, span);
+  waterfall($("card-fp"), state.data.fp, span);
+}
+
+function cellValue(d, c, r) {
+  if (state.metric === "reads") return d.reads[c][r];
+  if (state.metric === "writes") return d.writes[c][r];
+  return d.reads[c][r] + d.writes[c][r];
+}
+
+function waterfall(card, d, span) {
+  const host = card.querySelector(".plot");
+  host.replaceChildren();
+  if (!d) {
+    card.querySelector(".meta").textContent = "";
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "No log for this register file in this run";
+    host.appendChild(e);
+    return;
+  }
+  const h = d.header, n = h.num_regs, cols = d.reads.length;
+  const pw = plotWidth();
+  const rowH = Math.max(3, Math.min(8, Math.floor(420 / n)));
+  const ph = rowH * n;
+
+  // cell values as rate per 1k cycles; x positions in cycles
+  const xOf = (cyc) => (cyc / span) * pw;
+  let max = 0, total = 0;
+  const vals = [], x0 = [], x1 = [];
+  let cyc = 0;
+  for (let c = 0; c < cols; c++) {
+    const k = 1000 / (d.bin_cycles[c] || 1);
+    const col = new Array(n);
+    for (let r = 0; r < n; r++) {
+      const v = cellValue(d, c, r);
+      total += v;
+      col[r] = v * k;
+      if (col[r] > max) max = col[r];
+    }
+    vals.push(col);
+    x0.push(xOf(cyc));
+    cyc += d.bin_cycles[c];
+    x1.push(xOf(cyc));
+  }
+  const norm = (v) => Math.log1p(v) / Math.log1p(max || 1);
+
+  card.querySelector(".meta").textContent =
+    `${n} physical registers · ${fmtInt(total)} ${METRIC_NAME[state.metric]} over ${fmtCompact(d.total_cycles)} cycles` +
+    ` · ${fmtInt(h.window_cycles)}-cycle windows · colour = ${METRIC_NAME[state.metric]} per 1k cycles (log scale)`;
+  card.querySelector(".ramp-max").textContent = fmtRate(max);
+  const rc = card.querySelector(".ramp canvas").getContext("2d");
+  for (let x = 0; x < 140; x++) { rc.fillStyle = rampColor(Math.max(0.04, x / 139)); rc.fillRect(x, 0, 1, 10); }
+
+  // heat cells on a canvas
+  const W = pw + MARGIN.l + MARGIN.r, H = ph + MARGIN.t + MARGIN.b;
+  host.style.height = H + "px";
+  const cv = document.createElement("canvas");
+  cv.className = "heat";
+  const dpr = devicePixelRatio || 1;
+  cv.width = Math.round(pw * dpr); cv.height = Math.round(ph * dpr);
+  Object.assign(cv.style, { width: pw + "px", height: ph + "px", left: MARGIN.l + "px", top: MARGIN.t + "px" });
+  host.appendChild(cv);
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  for (let c = 0; c < cols; c++) {
+    const w = Math.max(1, x1[c] - x0[c]);
+    for (let r = 0; r < n; r++) {
+      if (vals[c][r] <= 0) continue;  // zero stays the surface colour
+      ctx.fillStyle = rampColor(Math.max(0.04, norm(vals[c][r])));
+      ctx.fillRect(x0[c], r * rowH, w + 0.5, rowH);
+    }
+  }
+
+  // axes
+  const s = svg("svg", { width: W, height: H }, host);
+  svg("rect", { x: MARGIN.l - 0.5, y: MARGIN.t - 0.5, width: pw + 1, height: ph + 1, fill: "none", stroke: css("--grid") }, s);
+  const every = n > 60 ? 10 : n > 24 ? 5 : 1;
+  for (let r = 0; r < n; r += every) {
+    const t = svg("text", { x: MARGIN.l - 8, y: MARGIN.t + r * rowH + rowH / 2 + 4, "text-anchor": "end", class: "tick" }, s);
+    t.textContent = "p" + r;
+  }
+  const nt = Math.max(2, Math.min(10, Math.floor(pw / 100)));
+  for (let i = 0; i <= nt; i++) {
+    const t = svg("text", { x: MARGIN.l + (i / nt) * pw, y: MARGIN.t + ph + 15, "text-anchor": i === 0 ? "start" : i === nt ? "end" : "middle", class: "tick" }, s);
+    t.textContent = fmtCompact((i / nt) * span);
+  }
+  const at = svg("text", { x: MARGIN.l + pw / 2, y: MARGIN.t + ph + 30, "text-anchor": "middle", class: "axis-title" }, s);
+  at.textContent = "cycle";
+
+  // hover
+  const mark = svg("rect", { height: rowH, fill: "none", stroke: css("--text-primary"), "stroke-width": 1, visibility: "hidden" }, s);
+  const hit = svg("rect", { x: MARGIN.l, y: MARGIN.t, width: pw, height: ph, fill: "transparent" }, s);
+  hit.addEventListener("pointermove", (e) => {
+    const b = s.getBoundingClientRect();
+    const px = e.clientX - b.left - MARGIN.l, py = e.clientY - b.top - MARGIN.t;
+    let c = x1.findIndex((x) => x > px);
+    if (c < 0) { mark.setAttribute("visibility", "hidden"); hideTip(); return; }  // past the end of this run
+    const r = Math.max(0, Math.min(n - 1, Math.floor(py / rowH)));
+    mark.setAttribute("x", MARGIN.l + x0[c]); mark.setAttribute("y", MARGIN.t + r * rowH);
+    mark.setAttribute("width", Math.max(2, x1[c] - x0[c]));
+    mark.setAttribute("visibility", "visible");
+    const w0 = d.bin_start[c], w1 = Math.min(d.end, w0 + d.per_bin) - 1;
+    const c0 = w0 * h.window_cycles;
+    showTip(e, `p${r} · cycles ${fmtCompact(c0)}–${fmtCompact(c0 + d.bin_cycles[c])}` +
+               (w0 === w1 ? ` (window ${w0})` : ` (windows ${w0}–${w1})`), [
+      { value: fmtInt(d.reads[c][r]), name: "reads", color: css("--series-reads") },
+      { value: fmtInt(d.writes[c][r]), name: "writes", color: css("--series-writes") },
+    ]);
+  });
+  hit.addEventListener("pointerleave", () => { mark.setAttribute("visibility", "hidden"); hideTip(); });
+}
+
+// ---------------------------------------------------------------- controls
+$("metric").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  state.metric = b.dataset.v;
+  for (const x of $("metric").querySelectorAll("button")) x.setAttribute("aria-pressed", x === b ? "true" : "false");
+  if (state.data.int || state.data.fp) render();
+});
+$("run").addEventListener("change", (e) => { state.run = state.runs[+e.target.value]; loadData(); });
+$("rescan").addEventListener("click", () => loadRuns());
+
+let resizeTimer = null;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state.run && loadData(), 200); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => (state.data.int || state.data.fp) && render());
+
+loadRuns().catch((e) => { $("subtitle").textContent = "Error: " + e.message; $("subtitle").className = "sub error"; });
+</script>
+</body>
+</html>

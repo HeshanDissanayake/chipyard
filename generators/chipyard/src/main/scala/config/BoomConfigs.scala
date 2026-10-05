@@ -60,3 +60,8 @@ class dmiMediumBoomCosimConfig extends Config(
   new chipyard.config.WithDMIDTM ++                              // have debug module expose a clocked DMI port
   new boom.common.WithNMediumBooms(1) ++
   new chipyard.config.AbstractConfig)
+
+// LargeBoom with the register file usage monitor, logging to binary files (RTL sim only)
+class LargeBoomRegMonConfig extends Config(
+  new boom.monitors.WithRegFileMonitor(windowCycles = 1000) ++
+  new chipyard.LargeBoomConfig)
